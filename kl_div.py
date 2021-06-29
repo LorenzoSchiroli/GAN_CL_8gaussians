@@ -12,7 +12,7 @@ from loops_training import *
 from plot_gaussians import *
 
 
-hist_bin_size = 500
+hist_bin_size = 50000
 
 
 def hist2d_8gauss(points):
@@ -63,11 +63,11 @@ def np_kl(p, q):  # https://towardsdatascience.com/kl-divergence-python-example-
 def kl_div_func(p, q):
     #kl = np_kl(p, q)
     #kl = multi_kl_div(p, q)
-    #kl = pytorch_kl(p, q)
+    kl = pytorch_kl(p, q)
     #kl = naive_estimator(p, q, k=1)
     #kl = scipy_estimator(p, q, k=1)
     #kl = skl_estimator(p, q, k=1)
-    kl = skl_estimator_efficient(p, q, k=5)
+    #kl = skl_estimator_efficient(p, q, k=5)
     return kl
 
 
@@ -79,7 +79,7 @@ def symmetric_kl(a, b):  # wikipedia https://en.wikipedia.org/wiki/Kullback%E2%8
 def kl_div_comp(cuda, dset, G, D, g_inp):
     # compute KL divergence
     #print("pytorch_kl " + str(hist_bin_size))
-    num_samples = 1000
+    num_samples = 1000000
     print("num samples: " + str(num_samples))
     print("bin size: " + str(hist_bin_size))
     tests = ["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10"]
@@ -96,7 +96,7 @@ def kl_div_comp(cuda, dset, G, D, g_inp):
     mean = np.mean(values)
     stddev = np.std(values)
     print("mean: " + str(mean) + "  standard deviation: " + str(stddev))
-    plot_tests(tests_samples, dset)
+    #plot_tests(tests_samples, dset)
 
 
 

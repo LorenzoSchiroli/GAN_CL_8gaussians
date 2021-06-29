@@ -39,17 +39,17 @@ g_out = dset.size
 d_inp = g_out
 d_hid = 128
 d_out = 1
-minibatch_size = 512  # 512
+minibatch_size = 512
 unrolled_steps = 0
 d_learning_rate = 1e-4
 g_learning_rate = 1e-3
 optim_betas = (0.5, 0.999)
-num_iterations = 25000  # 3000, 25000
-log_interval = 5000  # 300
+num_iterations = 5000  # 3000, 25000
+log_interval = 1000  # 300
 d_steps = 1
 g_steps = 1
 
-prefix = "unrolled_steps-{}-prior_std-{:.2f}".format(unrolled_steps, np.std(dset.p))
+#prefix = "unrolled_steps-{}-prior_std-{:.2f}".format(unrolled_steps, np.std(dset.p))
 
 G = Generator(input_size=g_inp, hidden_size=g_hid, output_size=g_out)
 D = Discriminator(input_size=d_inp, hidden_size=d_hid, output_size=d_out)
@@ -57,13 +57,18 @@ if cuda:
     G = G.cuda()
     D = D.cuda()
 criterion = nn.BCELoss()  # Binary cross entropy: http://pytorch.org/docs/nn.html#bceloss
-d_optimizer = optim.Adam(D.parameters(), lr=d_learning_rate, betas=optim_betas, weight_decay=0.01)
+d_optimizer = optim.Adam(D.parameters(), lr=d_learning_rate, betas=optim_betas)#, weight_decay=0.01)
 g_optimizer = optim.Adam(G.parameters(), lr=g_learning_rate, betas=optim_betas)
+
+#load_gd(G, D, "test4")
+
+alpha = 100
+n_tasks = num_iterations / alpha
 
 
 def train():
-    samples = []
-    for it in range(num_iterations):
+    steps = []
+    for it in range(1, num_iterations + 1):
         d_infos = []
         for d_index in range(d_steps):
             d_info = d_loop(cuda, dset, minibatch_size, G, D, g_inp, d_optimizer, criterion)
@@ -79,17 +84,25 @@ def train():
         g_infos = np.mean(g_infos)
         g_loss = g_infos
 
-        if it % log_interval == 0:
+        # end of each task
+        if it % alpha == 0:
+            data_distribution = dset.sample(500)
+            g_fake_data = g_sample(cuda, 500, G, g_inp)
+            #data_distribution_label = [(x, 1) for x in data_distribution]
+            #g_fake_data_label = [(x, 0) for x in g_fake_data]
+            D.estimate_fisher(data_distribution, g_fake_data)
+
+        if it % log_interval == 0 or it == 1:
             g_fake_data = g_sample(cuda, minibatch_size, G, g_inp)
-            samples.append(g_fake_data)
-            plot_advancement(g_fake_data, prefix, it, dset)
+            steps.append((it, g_fake_data))
+            plot_advancement(g_fake_data, "", it, dset)
             print(d_real_loss, d_fake_loss, g_loss)
-    plot_samples(samples, log_interval, unrolled_steps, prefix)
-    save_gd(G, D)
+    prefix = save_gd(G, D)
+    plot_samples(steps, unrolled_steps, prefix, dset)
 
 
-#train()
-kl_div_comp(cuda, dset, G, D, g_inp)
+train()
+#kl_div_comp(cuda, dset, G, D, g_inp)
 
 tick2 = time.time()
 print("total time: " + str(datetime.timedelta(seconds=(tick2 - tick1))))

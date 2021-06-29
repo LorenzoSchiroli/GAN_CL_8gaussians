@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from continual_learner import ContinualLearner
+
 
 ###### MODELS: Generator model and discriminator model
 class Generator(nn.Module):
@@ -19,7 +21,7 @@ class Generator(nn.Module):
         return self.map3(x)
 
 
-class Discriminator(nn.Module):
+class Discriminator(ContinualLearner):
     def __init__(self, input_size, hidden_size, output_size):
         super(Discriminator, self).__init__()
         self.map1 = nn.Linear(input_size, hidden_size)

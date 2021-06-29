@@ -3,6 +3,15 @@ import numpy as np
 import copy
 
 
+def l2_loss(D, d_loss):  # L2 https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
+    l2_lambda = 0.01
+    l2_reg = torch.tensor(0.).cuda()
+    for param in D.parameters():
+        l2_reg += torch.norm(param)
+    d_loss += l2_lambda/2 * l2_reg
+    return d_loss
+
+
 def noise_sampler(N, z_dim):
     return np.random.normal(size=[N, z_dim]).astype('float32')
 
@@ -35,6 +44,9 @@ def d_loop(cuda, dset, minibatch_size, G, D, g_inp, d_optimizer, criterion):
     d_fake_error = criterion(d_fake_decision, target)  # zeros = fake
 
     d_loss = d_real_error + d_fake_error
+    #d_loss = l2_loss(D, d_loss)
+    d_loss += D.ewc_lambda * D.ewc_loss()
+
     d_loss.backward()
     d_optimizer.step()  # Only optimizes D's parameters; changes based on stored gradients from backward()
     return d_real_error.cpu().item(), d_fake_error.cpu().item()
