@@ -2,8 +2,8 @@ import torch
 import os
 
 
-folders = ["GANvanilla", "GAN_L2_pytorch", "GAN_L2_manual", "GAN_EWC_try"]
-dirname = os.path.join(os.path.dirname(__file__), 'param', folders[3])
+folders = ["GANvanilla", "GAN_L2_pytorch", "GAN_L2_manual", "GAN_EWC_100-10-0.98", "GAN_ER"]
+dirname = os.path.join(os.path.dirname(__file__), 'param', folders[4])
 print(dirname)
 
 
@@ -12,8 +12,8 @@ def save_model(model, path):
 
 
 def load_model(model, path):
-    model.load_state_dict(torch.load(path))
-    #model.load_state_dict(torch.load(path + filename + ".pt", map_location=torch.device('cpu')))
+    #model.load_state_dict(torch.load(path))
+    model.load_state_dict(torch.load(path, map_location=torch.device('cpu')))
     model.eval()
 
 
@@ -34,6 +34,12 @@ def load_gd(g_model, d_model, filename):
     path = os.path.join(dirname, filename)
     load_model(g_model, path + "_g.pt")
     load_model(d_model, path + "_d.pt")
+
+
+def load_g(g_model, filename):
+    print("loading " + filename + "...")
+    path = os.path.join(dirname, filename)
+    load_model(g_model, path + "_g.pt")
 
 
 

@@ -23,8 +23,8 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
         self.epsilon = 0.1      #-> dampening parameter: bounds 'omega' when squared parameter-change goes to 0
 
         # -EWC:
-        self.ewc_lambda = 0     #-> hyperparam: how strong to weigh EWC-loss ("regularisation strength")
-        self.gamma = 1.         #-> hyperparam (online EWC): decay-term for old tasks' contribution to quadratic term
+        self.ewc_lambda = 10    #-> hyperparam: how strong to weigh EWC-loss ("regularisation strength")
+        self.gamma = 0.98         #-> hyperparam (online EWC): decay-term for old tasks' contribution to quadratic term
         self.online = True      #-> "online" (=single quadratic term) or "offline" (=quadratic term per task) EWC
         self.fisher_n = None    #-> sample size for estimating FI-matrix (if "None", full pass over dataset)
         self.emp_FI = False     #-> if True, use provided labels to calculate FI ("empirical FI"); else predicted labels
@@ -84,16 +84,25 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
         mode = self.training
         self.eval()
 
-        data = [[real_data, [1]*len(real_data)], [fake_data, [0]*len(fake_data)]]
+        vals = torch.cat((torch.from_numpy(real_data), torch.from_numpy(fake_data)))
+        labs = torch.cat((torch.ones(len(real_data)), torch.zeros(len(fake_data))))
+        #perm = torch.randperm(len(vals))
+        #vals = vals[perm]
+        #labs = labs[perm]
+
         # Estimate the FI-matrix for [self.fisher_n] batches of size 1
-        for [x, y] in data:
+        for index, (x, y) in enumerate(zip(vals, labs)):
+            # break from for-loop if max number of samples has been reached
+            if self.fisher_n is not None:
+                if index >= self.fisher_n:
+                    break
             # run forward pass of model
-            x = torch.FloatTensor(x).to(self._device())
-            output = self(x)
+            x = x.to(self._device())
+            output = self(x.unsqueeze(0))
             # -use provided label to calculate loglikelihood --> "empirical Fisher":
-            label = torch.LongTensor(y).to(self._device())
+            label = y.to(self._device()).unsqueeze(0)
             # calculate negative log-likelihood
-            negloglikelihood = F.nll_loss(F.log_softmax(output, dim=1), label)
+            negloglikelihood = F.binary_cross_entropy(output, label.unsqueeze(0))
 
             # Calculate gradient of negative loglikelihood
             self.zero_grad()
@@ -107,7 +116,7 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
                         est_fisher_info[n] += p.grad.detach() ** 2
 
         # Normalize by sample size used for estimation
-        est_fisher_info = {n: p/(len(real_data)+len(fake_data)) for n, p in est_fisher_info.items()}
+        est_fisher_info = {n: p/index for n, p in est_fisher_info.items()}
 
         # Store new values in the network
         for n, p in self.named_parameters():

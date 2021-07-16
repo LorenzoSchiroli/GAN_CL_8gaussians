@@ -21,7 +21,8 @@ class Generator(nn.Module):
         return self.map3(x)
 
 
-class Discriminator(ContinualLearner):
+class Discriminator(nn.Module):
+#class Discriminator(ContinualLearner):
     def __init__(self, input_size, hidden_size, output_size):
         super(Discriminator, self).__init__()
         self.map1 = nn.Linear(input_size, hidden_size)

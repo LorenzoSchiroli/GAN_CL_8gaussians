@@ -8,7 +8,6 @@ import seaborn as sns
 
 from kl_div_knn import *
 from save_load_model import *
-from loops_training import *
 from plot_gaussians import *
 
 
@@ -63,11 +62,11 @@ def np_kl(p, q):  # https://towardsdatascience.com/kl-divergence-python-example-
 def kl_div_func(p, q):
     #kl = np_kl(p, q)
     #kl = multi_kl_div(p, q)
-    kl = pytorch_kl(p, q)
+    #kl = pytorch_kl(p, q)
     #kl = naive_estimator(p, q, k=1)
     #kl = scipy_estimator(p, q, k=1)
     #kl = skl_estimator(p, q, k=1)
-    #kl = skl_estimator_efficient(p, q, k=5)
+    kl = skl_estimator_efficient(p, q, k=5)
     return kl
 
 
@@ -87,12 +86,12 @@ def kl_div_comp(cuda, dset, G, D, g_inp):
     values = []
     tests_samples = []
     for i in tests:
-        load_gd(G, D, i)
+        load_g(G, i)
         data_distribution = dset.sample(num_samples)
         generated_sample = g_sample(cuda, num_samples, G, g_inp)
         kl = symmetric_kl(data_distribution, generated_sample)
         values.append(kl)
-        tests_samples.append((i, generated_sample))
+        #tests_samples.append((i, generated_sample))
     mean = np.mean(values)
     stddev = np.std(values)
     print("mean: " + str(mean) + "  standard deviation: " + str(stddev))
