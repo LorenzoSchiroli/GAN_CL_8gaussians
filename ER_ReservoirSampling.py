@@ -8,24 +8,27 @@ import random
 from random import shuffle
 from random import randrange
 import time
-import datetime
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 
 class ER():
 
-    def __init__(self, batch_size, cuda):
+    def __init__(self, batch_size, cuda, bprop, msize, astart):
         self.batch_size = batch_size
-        prop = 4  # proportion
+        prop = bprop  # proportion
         self.er_batch_size = int(batch_size/prop)-1  # number (k-1)
-        self.memories = 300  # total items (number)
+        self.memories = msize#128  # total items (number)
         # allocate buffer
         self.M = []
         self.examples = torch.Tensor()
         self.labels = torch.Tensor()
-        self.age = 0
+        self.age = 0  # age initialization
         self.cuda = cuda
         self.curr_examp = None
         self.current_example = None
+        self.age_start = astart#5000
+
 
     def memory_draw(self, x, y):
         mxi = x.tolist()
@@ -81,7 +84,7 @@ class ER():
         y = torch.tensor([y])
         if self.cuda:
             y = y.cuda()
-        self.current_example = [x, y]
+        self.current_example = [x.data, y]
         bxs = x.unsqueeze(0)
         bys = y.unsqueeze(0)
         if len(self.examples) > 0:
@@ -92,19 +95,19 @@ class ER():
         return bxs, bys
 
     def memory_update_eff(self):
-        self.age += 1
-        if self.age > 1:
+        if self.age > self.age_start:
             if len(self.examples) < self.memories:
                 self.examples = torch.cat((self.examples, self.current_example[0].unsqueeze(0)))
                 self.labels = torch.cat((self.labels, self.current_example[1].unsqueeze(0)))
             else:
-                p = random.randint(0, self.age)
+                p = random.randint(0, self.age - self.age_start)
                 if p < self.memories:
                     self.examples[p] = self.current_example[0]
                     self.labels[p] = self.current_example[1]
-        else:
+        elif self.age == self.age_start:
             self.examples = torch.unsqueeze(self.current_example[0], 0)
             self.labels = torch.unsqueeze(self.current_example[1], 0)
+        self.age += 1
 
     def draw_batch_fake(self, minibatch):
         memorized, _ = self.memory_draw_efff(minibatch[0], 0)
@@ -114,6 +117,10 @@ class ER():
     def update_batch(self):
         self.memory_update_eff()
         #self.memory_update()
+        # plt.figure()
+        # plt.scatter(self.examples[:,0].cpu(), self.examples[:,1].cpu())
+        # dirname = get_dir()
+        # plt.savefig(dirname + f"/figura/{datetime.now()}.jpg")
 
 '''
         tick1 = time.time()

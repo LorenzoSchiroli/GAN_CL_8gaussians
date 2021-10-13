@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import seaborn
-from save_load_model import get_dir
 import os
+import math
 plt.style.use('ggplot')
 
 
@@ -51,9 +51,10 @@ def plot_advancement(g_fake_data, prefix, it, dset):
     plot(g_fake_data, '[{}] Iteration {}'.format(prefix, it), dset)
 
 
-def plot_tests(tests, dset):
+def plot_tests(tests, dset, fm):
     cols = 5
-    fig, axs = plt.subplots(2, cols)
+    rows = max(math.ceil(len(tests)/cols), 2)
+    fig, axs = plt.subplots(rows, cols)
     for i, tes in enumerate(tests):
         title = tes[0]
         samps = tes[1]
@@ -63,7 +64,7 @@ def plot_tests(tests, dset):
         axs[a, b].scatter(samps[:, 0], samps[:, 1], s=10, c='b', alpha=0.5)
         axs[a, b].scatter(dset.centers[:, 0], dset.centers[:, 1], s=100, c='g', alpha=0.5)
         axs[a, b].set_title(title)
-    plt.savefig(os.path.join(get_dir(), 'overview.png'))
+    plt.savefig(os.path.join(fm.get_dir(), 'overview.png'))
     plt.show()
     plt.close()
 
