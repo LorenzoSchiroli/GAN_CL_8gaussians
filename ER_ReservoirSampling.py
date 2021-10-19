@@ -14,10 +14,8 @@ from datetime import datetime
 
 class ER():
 
-    def __init__(self, batch_size, cuda, bprop, msize, astart):
-        self.batch_size = batch_size
-        prop = bprop  # proportion
-        self.er_batch_size = int(batch_size/prop)-1  # number (k-1)
+    def __init__(self, cuda, er_batch_size, msize, astart):
+        self.er_batch_size = er_batch_size-1  # number (k-1)
         self.memories = msize#128  # total items (number)
         # allocate buffer
         self.M = []
@@ -111,8 +109,7 @@ class ER():
 
     def draw_batch_fake(self, minibatch):
         memorized, _ = self.memory_draw_efff(minibatch[0], 0)
-        new = minibatch[len(memorized):self.batch_size+1]
-        return torch.cat((new, memorized))
+        return memorized
 
     def update_batch(self):
         self.memory_update_eff()

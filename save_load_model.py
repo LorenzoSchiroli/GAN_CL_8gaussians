@@ -11,6 +11,7 @@ class FolderManager:
         self.starting_number = start
         self.folder_name(folder)
         self.text = None
+        self.last_test = 0
 
     def folder_name(self, folder):
         self.dirname = os.path.join(self.rootdir, folder)
@@ -25,13 +26,18 @@ class FolderManager:
         model.load_state_dict(torch.load(path, map_location=torch.device('cpu')))
         model.eval()
 
+    def comp_last_test(self):
+        i = self.starting_number
+        while os.path.exists(os.path.join(self.dirname, "test%s_g.pt" % i)) or \
+                os.path.exists(os.path.join(self.dirname, "test%s_d.pt" % i)):
+            i += 1
+        self.last_test = i-1
+        return self.last_test
+
     def save_gd(self, g_model, d_model, filename=None):
         if filename is None:
-            i = self.starting_number
-            while os.path.exists(os.path.join(self.dirname, "test%s_g.pt" % i)) or os.path.exists(
-                    os.path.join(self.dirname, "test%s_d.pt" % i)):
-                i += 1
-            filename = "test%s" % i
+            self.comp_last_test()
+            filename = "test%s" % (self.last_test + 1)
         print("saving " + filename + "...")
         path = os.path.join(self.dirname, filename)
         self.save_model(g_model, path + "_g.pt")

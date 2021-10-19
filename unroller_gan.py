@@ -5,17 +5,17 @@ import copy
 import torch.optim as optim
 
 from mixture_gaussian import data_generator
-#from generator_discriminator import Generator, Discriminator
+# from generator_discriminator import Generator, Discriminator
 from continual_learner import ContinualLearner
 from plot_gaussians import *
 from save_load_model import FolderManager
 from ER_ReservoirSampling import ER
 
-
-#folders = ["GANvanilla", "GAN_L2_pytorch", "GAN_L2_manual", "GAN_EWC_100-10-0.98", "GAN_ER prove"]
-#FM = FolderManager(mod)
+# folders = ["GANvanilla", "GAN_L2_pytorch", "GAN_L2_manual", "GAN_EWC_100-10-0.98", "GAN_ER prove"]
+# FM = FolderManager(mod)
 
 verbose_plot = False
+
 
 ###### MODELS: Generator model and discriminator model
 class Generator(nn.Module):
@@ -33,7 +33,7 @@ class Generator(nn.Module):
         return self.map3(x)
 
 
-#class Discriminator(nn.Module):
+# class Discriminator(nn.Module):
 class Discriminator(ContinualLearner):
     def __init__(self, input_size, hidden_size, output_size, wgan):
         super(Discriminator, self).__init__()
@@ -76,7 +76,28 @@ class UnrollerGan:
             sample_points = self.dset.sample(100)
             plot(sample_points, 'Sampled data points', self.dset)
 
-        self.is_L2_loss, self.is_L2_optim, self.is_WGAN, self.is_EWC, self.is_ER_clipping = models
+        self.is_L2_loss, self.is_L2_optim, self.is_WGAN, self.is_EWC, self.is_ER, self.is_gClipping = models
+
+        # EWC parameters
+        self.ewc_alpha = None
+        # ewc_lambda = None
+        # gamma = None
+        self.fisher_sample_size = None
+
+        # if self.is_EWC:
+        #    self.ewc_parameters(100, 10, 0.98, 5000)
+
+        # ER clipping parameters
+        self.mem_batch_size = None
+        self.clip_value = None
+        self.msize = None
+        self.astart = None
+        self.er = None
+
+        # if self.is_ER:
+        #    self.er_parameters(0.1, 4, 200, 5000)
+
+        self.FM = fm
 
         # Model params (most of hyper-params follow the original paper: https://arxiv.org/abs/1611.02163)
         self.z_dim = 256
@@ -86,10 +107,9 @@ class UnrollerGan:
         self.d_inp = self.g_out
         self.d_hid = 128
         self.d_out = 1
-        if self.is_WGAN:
+        self.minibatch_size = 512
+        if self.is_WGAN and not self.is_ER:
             self.minibatch_size = 64
-        else:
-            self.minibatch_size = 512
         self.unrolled_steps = 0
         if self.is_WGAN:
             self.d_learning_rate = 5e-5
@@ -124,27 +144,6 @@ class UnrollerGan:
             self.g_optimizer = optim.Adam(self.G.parameters(), lr=self.g_learning_rate, betas=self.optim_betas)
         self.g_optimizer = optim.Adam(self.G.parameters(), lr=self.g_learning_rate, betas=self.optim_betas)
 
-        # EWC parameters
-        self.ewc_alpha = None
-        self.D.ewc_lambda = None
-        self.D.gamma = None
-        self.fisher_sample_size = None
-
-        if self.is_EWC:
-            self.ewc_parameters(100, 10, 0.98, 5000)
-
-        # ER clipping parameters
-        self.clip_value = None
-        self.bprop = None
-        self.msize = None
-        self.astart = None
-        self.er = None
-
-        #if self.is_ER_clipping:
-        #    self.er_parameters(0.1, 4, 200, 5000)
-
-        self.FM = fm
-
     def ewc_parameters(self, alpha=100, lamb=10, gamma=0.98, fisher_size=5000):
         self.ewc_alpha = alpha
         self.D.ewc_lambda = lamb
@@ -153,22 +152,23 @@ class UnrollerGan:
             self.D.gamma))
         self.fisher_sample_size = fisher_size  # 5000
 
-    def er_parameters(self, clip, prop, size, start):
+    def er_parameters(self, new_batch, mem_batch, size, start, clip):
         self.clip_value = clip
-        self.bprop = prop
         self.msize = size
         self.astart = start
-        self.er = ER(self.minibatch_size, self.cuda, self.bprop, self.msize, self.astart)
-        print("ER CLIPPING PARAMS Clip_value: " + str(self.clip_value) + "; Batch_prop: " + str(
-            self.bprop) + "; Memory_size: " + str(self.msize) + "; Age_start: " + str(
-            self.astart))
+        self.minibatch_size = new_batch
+        self.mem_batch_size = mem_batch
+        self.er = ER(self.cuda, self.mem_batch_size, self.msize, self.astart)
+        print("ER CLIPPING PARAMS new_batch_size: " + str(self.minibatch_size) + "; mem_batch_size: " +
+              str(self.mem_batch_size) + "; Memory_size: " + str(self.msize) + "; Age_start: " + str(self.astart) +
+              "; Clip_value: " + str(self.clip_value))
 
     def l2_loss(self, d_loss):  # L2 https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
         l2_lambda = 0.01
         l2_reg = torch.tensor(0.).cuda()
         for param in self.D.parameters():
             l2_reg += torch.norm(param)
-        d_loss += l2_lambda/2 * l2_reg
+        d_loss += l2_lambda / 2 * l2_reg
         return d_loss
 
     def noise_sampler(self, N, z_dim):
@@ -201,8 +201,12 @@ class UnrollerGan:
         with torch.no_grad():
             d_fake_data = self.G(d_gen_input)
 
-        if self.is_ER_clipping:
-            d_fake_data = self.er.draw_batch_fake(d_fake_data)  # d_fake_data[0] just one element, 0 since it is fake
+        if self.is_ER:
+            mem = self.er.draw_batch_fake(d_fake_data)  # d_fake_data[0] just one element, 0 since it is fake
+            new = d_fake_data
+            new = d_fake_data[len(mem):self.minibatch_size + 1]  # batch_new becomes the total batch size,
+            # so the actual new batch is resized
+            d_fake_data = torch.cat((new, mem))
 
         d_fake_decision = self.D(d_fake_data)
         if self.is_WGAN:
@@ -230,13 +234,13 @@ class UnrollerGan:
 
         d_loss.backward()
 
-        if self.is_ER_clipping:
-            #torch.nn.utils.clip_grad_norm_(self.D.parameters(), self.clip_value)  # gradient clipping
+        if self.is_gClipping:
+            # torch.nn.utils.clip_grad_norm_(self.D.parameters(), self.clip_value)  # gradient clipping
             torch.nn.utils.clip_grad_value_(self.D.parameters(), self.clip_value)  # gradient clipping
 
         self.d_optimizer.step()  # Only optimizes D's parameters; changes based on stored gradients from backward()
 
-        if self.is_ER_clipping:
+        if self.is_ER:
             self.er.update_batch()
 
         return d_real_error.cpu().item(), d_fake_error.cpu().item()
@@ -303,7 +307,7 @@ class UnrollerGan:
         if self.is_WGAN:
             g_error = -torch.mean(dg_fake_decision)
         g_error.backward()
-        #torch.nn.utils.clip_grad_value_(self.G.parameters(), 1.0)  # gradient clipping
+        # torch.nn.utils.clip_grad_value_(self.G.parameters(), 1.0)  # gradient clipping
         self.g_optimizer.step()  # Only optimizes G's parameters
 
         if self.unrolled_steps > 0:
@@ -327,7 +331,7 @@ class UnrollerGan:
             return torch.cat(gen_output).numpy()
 
     def train(self, num_iterations=25000, log_interval=1000):
-        #n_tasks = num_iterations / self.ewc_alpha
+        # n_tasks = num_iterations / self.ewc_alpha
 
         steps = []
         for it in range(1, num_iterations + 1):
@@ -362,7 +366,8 @@ class UnrollerGan:
                 steps.append((it, g_fake_data))
                 if verbose_plot:
                     plot_advancement(g_fake_data, "", it, self.dset)
-                print("D_real_loss: " + str(d_real_loss) + "; D_fake_loss: " + str(d_fake_loss) + "; G_loss: " + str(g_loss))
+                print("D_real_loss: " + str(d_real_loss) + "; D_fake_loss: " + str(d_fake_loss) + "; G_loss: " + str(
+                    g_loss))
 
         prefix = self.FM.save_gd(self.G, self.D)
         plot_samples(steps, self.unrolled_steps, prefix, self.dset)
