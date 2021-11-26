@@ -80,7 +80,8 @@ class Metrics:
         return sym_kl
 
 
-    def kl_div_comp(self):
+    def kl_div_comp(self, maxim=10):
+        tests = range(1, maxim + 1)
         # compute KL divergence
         #print("pytorch_kl " + str(hist_bin_size))
         nsamples = [1000, 10000, 100000, 1000000]
@@ -91,7 +92,6 @@ class Metrics:
             #tests = ["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10"]
             #tests = ["test1", "test2", "test3"]
             #tests = [19, 20, 21, 22, 23, 24, 85, 86, 87, 88]
-            tests = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             values = []
             tests_samples = []
             for i in tests:
@@ -109,6 +109,22 @@ class Metrics:
             self.FM.text_write(symkl_result)
             #plot_tests(tests_samples, dset)
 
+    def rank_tests(self):
+        print("Ranking tests...")
+        num_samples = 1000
+        values = []
+        i = 1
+        while self.FM.load_g(self.gan.G, "test"+str(i)):
+            data_distribution = self.gan.dset.sample(num_samples)
+            generated_sample = self.gan.g_sample(num_samples)
+            kl = self.symmetric_kl(data_distribution, generated_sample)
+            values.append(kl)
+            i += 1
+        rank = sorted(range(len(values)), key=lambda k: values[k])
+        rank = [x + 1 for x in rank]
+        self.FM.rename_tests(rank)
+
+
     def is_collapsed(self, tnumber, samples):
         stddev = np.std(samples, axis=0)
         #print("test" + str(tnumber) + " stddev: " + str(stddev))
@@ -116,26 +132,37 @@ class Metrics:
             return True
         return False
 
-    def iterate_tests(self):
-        maxim = 10
+    def iterate_tests(self, maxim=10):
         tests = range(1, maxim+1)
         #tests = [19, 20, 21, 22, 23, 24, 85, 86, 87, 88]
         #tests = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         tests_samples = []
+        tests_ermem_samples = []
         count_collapsed = 0
         for i in tests:
             tname = "test" + str(i)
             if not self.FM.load_g(self.gan.G, tname):
                 break
+            if self.gan.is_ER:
+                er_mem = self.FM.load_er_mem(tname)
             generated_sample = self.gan.g_sample(100)
             if self.is_collapsed(i, generated_sample):
                 count_collapsed = count_collapsed + 1
                 print("test " + str(i) + " collapsed")
             tests_samples.append((i, generated_sample))
+            if self.gan.is_ER:
+                tests_ermem_samples.append((i, er_mem))
         final_count = "Not collapsed count: " + str(len(tests)-count_collapsed) + "/" + str(len(tests))
         print(final_count)
         self.FM.text_write(final_count)
-        plot_tests(tests_samples, self.gan.dset, self.FM)
+        direct = self.FM.get_dir()
+        title = self.FM.get_folder().split("-")[0]
+        title = title.replace("GAN_W", "WGAN")
+        title = title.replace("_optim", "")
+        title = title.replace("_", " ")
+        plot_tests(tests_samples, self.gan.dset, direct, 'overview.png', title, 'b')
+        if self.gan.is_ER:
+            plot_tests(tests_ermem_samples, self.gan.dset, direct, 'overview_er_mem.png', title + " buffer", 'r')
 
 
 

@@ -1,6 +1,8 @@
 import torch
 import os
+import re
 from pathlib import Path
+import pickle
 
 
 class FolderManager:
@@ -18,11 +20,14 @@ class FolderManager:
         Path(self.dirname).mkdir(parents=True, exist_ok=True)
         print(self.dirname)
 
+    def get_folder(self):
+        return os.path.basename(os.path.normpath(self.dirname))
+
     def save_model(self, model, path):
         torch.save(model.state_dict(), path)
 
     def load_model(self, model, path):
-        #model.load_state_dict(torch.load(path))
+        # model.load_state_dict(torch.load(path))
         model.load_state_dict(torch.load(path, map_location=torch.device('cpu')))
         model.eval()
 
@@ -31,8 +36,22 @@ class FolderManager:
         while os.path.exists(os.path.join(self.dirname, "test%s_g.pt" % i)) or \
                 os.path.exists(os.path.join(self.dirname, "test%s_d.pt" % i)):
             i += 1
-        self.last_test = i-1
+        self.last_test = i - 1
         return self.last_test
+
+    def save_er_mem(self, mem):
+        self.comp_last_test()
+        filename = "test%s_ermem.pickle" % self.last_test
+        path = os.path.join(self.dirname, filename)
+        with open(path, "wb") as fp:
+            pickle.dump(mem, fp)
+        return path
+
+    def load_er_mem(self, filename):
+        path = os.path.join(self.dirname, filename + "_ermem.pickle")
+        with open(path, "rb") as fp:
+            mem = pickle.load(fp)
+        return mem
 
     def save_gd(self, g_model, d_model, filename=None):
         if filename is None:
@@ -44,9 +63,10 @@ class FolderManager:
         self.save_model(d_model, path + "_d.pt")
         return path
 
-    def load_gd(self, g_model, d_model, filename):
+    def load_gd(self, g_model, d_model, folder, filename):
         print("loading " + filename + "...")
-        path = os.path.join(self.dirname, filename)
+        pathdir = os.path.join(self.rootdir, folder)
+        path = os.path.join(pathdir, filename)
         self.load_model(g_model, path + "_g.pt")
         self.load_model(d_model, path + "_d.pt")
 
@@ -67,7 +87,7 @@ class FolderManager:
         return self.dirname
 
     def text_open(self):
-        self.text = open(os.path.join(self.dirname, "print_important.txt"), "w")
+        self.text = open(os.path.join(self.dirname, "print_important.txt"), "a")
 
     def text_write(self, text):
         self.text.write(text + "\n")
@@ -82,16 +102,17 @@ class FolderManager:
         rank_std = list()
         rank_mean_std = list()
         for filename in os.listdir(self.rootdir):
-            if os.path.isdir(os.path.join(self.rootdir, filename)) and filename.startswith(os.path.basename(self.dirname)):
+            if os.path.isdir(os.path.join(self.rootdir, filename)) and filename.startswith(
+                    os.path.basename(self.dirname)):
                 print(filename)
                 try:
                     info_file = open(os.path.join(os.path.join(self.rootdir, filename), "print_important.txt"))
                     text = info_file.read()
                     lines = text.split('\n')
-                    line = [line for line in lines if line.startswith("Num samples: " + str(nsamp))][0]
+                    line = [line for line in lines if line.startswith("Num samples: " + str(nsamp))][-1]
                     words = line.split()
-                    mean = float(words[words.index(matches[0])+1])
-                    std = float(words[words.index(matches[1])+1])
+                    mean = float(words[words.index(matches[0]) + 1])
+                    std = float(words[words.index(matches[1]) + 1])
                     rank_mean.append((filename, mean))
                     rank_std.append((filename, std))
                     rank_mean_std.append((filename, mean + std))
@@ -113,8 +134,27 @@ class FolderManager:
         for i in range(3):
             print(rank_std[i][0] + ":  " + str(rank_std[i][1]))
 
+    def rename_file(self, old, new):
+        os.rename(os.path.join(self.dirname, old), os.path.join(self.dirname, new))
 
+    def rename_test(self, oldname, newname):
+        self.rename_file(oldname + ".png", newname + ".png")
+        self.rename_file(oldname + "_g.pt", newname + "_g.pt")
+        self.rename_file(oldname + "_d.pt", newname + "_d.pt")
+        if os.path.exists(os.path.join(self.dirname, oldname + "_ermem.pickle")):
+            self.rename_file(oldname + "_ermem.pickle", newname + "_ermem.pickle")
 
+    def rename_tests(self, rank, starting=1):
+        for filename in os.listdir(self.dirname):
+            if "test" in filename:
+                self.rename_file(filename, "x" + filename)
+        for new_index, old_index in enumerate(rank):
+            self.rename_test("x" + "test" + str(old_index), "test" + str(new_index + starting))
 
-
+    def reorder_tests(self, start):
+        tests_indexes = []
+        for filename in os.listdir(self.dirname):
+            if filename.startswith("test") and not re.findall("\d+", filename)[0] in tests_indexes:
+                tests_indexes.append(re.findall("\d+", filename)[0])
+        self.rename_tests(tests_indexes, start)
 

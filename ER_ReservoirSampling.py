@@ -15,20 +15,23 @@ from datetime import datetime
 class ER():
 
     def __init__(self, cuda, er_batch_size, msize, astart):
-        self.er_batch_size = er_batch_size-1  # number (k-1)
-        self.memories = msize#128  # total items (number)
+        self.cuda = cuda
+        self.er_batch_size = er_batch_size  # number (k-1)
+        self.mem_size = msize#128  # total items (number)
         # allocate buffer
         self.M = []
         self.examples = torch.Tensor()
         self.labels = torch.Tensor()
+        if self.cuda:
+            self.examples = self.examples.cuda()
+            self.labels = self.labels.cuda()
         self.age = 0  # age initialization
-        self.cuda = cuda
         self.curr_examp = None
         self.current_example = None
         self.age_start = astart#5000
 
 
-    def memory_draw(self, x, y):
+    def memory_draw_a(self, x, y):
         mxi = x.tolist()
         myi = y
         self.curr_examp = [mxi, myi]
@@ -52,7 +55,7 @@ class ER():
             bys = bys.cuda()
         return bxs, bys
 
-    def memory_update(self):
+    def memory_update_a(self):
         self.age += 1
         if len(self.M) < self.memories:
             self.M.append(self.curr_examp)
@@ -61,7 +64,7 @@ class ER():
             if p < self.memories:
                 self.M[p] = self.curr_examp
 
-    def memory_draw_eff(self, x, y):
+    def memory_draw_b(self, x, y):
         y = torch.tensor([y])
         if self.cuda:
             y = y.cuda()
@@ -78,41 +81,59 @@ class ER():
                 bys = torch.cat((bys, yi))
         return bxs, bys
 
-    def memory_draw_efff(self, x, y):
-        y = torch.tensor([y])
-        if self.cuda:
-            y = y.cuda()
-        self.current_example = [x.data, y]
-        bxs = x.unsqueeze(0)
-        bys = y.unsqueeze(0)
+    def memory_draw_eff(self):
         if len(self.examples) > 0:
-            osize = min(self.er_batch_size, len(self.examples))
-            perm = torch.randperm(self.examples.size()[0])[0:osize]
-            bxs = torch.cat((bxs, self.examples[perm]))
-            bys = torch.cat((bys, self.labels[perm]))
-        return bxs, bys
+            # osize = min(self.er_batch_size, len(self.examples))
+            perm = torch.randperm(self.examples.size()[0])[:self.er_batch_size]
+            bxs = self.examples[perm]
+            bys = self.labels[perm]
+            return bxs, bys
+        nothing = torch.Tensor()
+        if self.cuda:
+            nothing = nothing.cuda()
+        return nothing, nothing
 
-    def memory_update_eff(self):
-        if self.age > self.age_start:
-            if len(self.examples) < self.memories:
-                self.examples = torch.cat((self.examples, self.current_example[0].unsqueeze(0)))
-                self.labels = torch.cat((self.labels, self.current_example[1].unsqueeze(0)))
-            else:
-                p = random.randint(0, self.age - self.age_start)
-                if p < self.memories:
-                    self.examples[p] = self.current_example[0]
-                    self.labels[p] = self.current_example[1]
-        elif self.age == self.age_start:
-            self.examples = torch.unsqueeze(self.current_example[0], 0)
-            self.labels = torch.unsqueeze(self.current_example[1], 0)
+    def reservoir_sampling_batch(self, x, y):
+        if self.age >= self.age_start:
+            for xi, yi in zip(x, y):
+                if len(self.examples) < self.mem_size:
+                    self.examples = torch.cat((self.examples, xi.unsqueeze(0)))
+                    self.labels = torch.cat((self.labels, yi.unsqueeze(0)))
+                else:
+                    p = random.randint(0, self.age - self.age_start)
+                    if p < self.mem_size:
+                        self.examples[p] = xi
+                        self.labels[p] = yi
+        self.age += 1
+
+    def reservoir_sampling_batch_eff(self, x, y):
+        if self.age >= self.age_start:
+            if len(self.examples) < self.mem_size:  # add examples
+                remaining = self.mem_size-len(self.examples)
+                self.examples = torch.cat((self.examples, x[:remaining]))
+                self.labels = torch.cat((self.labels, y[:remaining]))
+                if self.mem_size == len(self.examples):  # substitute exceeding examples
+                    self.reservoir_sampling_batch_eff(x[remaining:], y[remaining:])
+                    self.age -= 1
+            else:  # substitute examples
+                perm = torch.round(torch.mul(torch.rand(len(x)), self.age-self.age_start)).long()
+                perm = perm[perm < self.mem_size]
+                self.examples[perm] = x[:len(perm)]
+                self.labels[perm] = y[:len(perm)]
         self.age += 1
 
     def draw_batch_fake(self, minibatch):
-        memorized, _ = self.memory_draw_efff(minibatch[0], 0)
+        x = minibatch[:self.er_batch_size]
+        y = torch.zeros(self.er_batch_size)
+        if self.cuda:
+            y = y.cuda()
+        memorized, _ = self.memory_draw_eff()
+        self.reservoir_sampling_batch_eff(x, y)
         return memorized
 
-    def update_batch(self):
-        self.memory_update_eff()
+    # new = d_fake_data[len(mem):self.minibatch_size + 1]
+    #def update_batch(self):
+    #    self.memory_update_eff()
         #self.memory_update()
         # plt.figure()
         # plt.scatter(self.examples[:,0].cpu(), self.examples[:,1].cpu())

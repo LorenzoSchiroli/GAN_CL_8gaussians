@@ -63,7 +63,7 @@ class UnrollerGan:
 
     def __init__(self, cuda, models, fm):
         self.cuda = cuda
-
+        self.FM = fm
         ## choose uniform mixture gaussian or weighted mixture gaussian
         self.dset = data_generator()
         # self.dset.random_distribution()
@@ -74,7 +74,7 @@ class UnrollerGan:
             plt.show()
             plt.close()
             sample_points = self.dset.sample(100)
-            plot(sample_points, 'Sampled data points', self.dset)
+            #plot(sample_points, 'Sampled data points', self.dset, self.FM)
 
         self.is_L2_loss, self.is_L2_optim, self.is_WGAN, self.is_EWC, self.is_ER, self.is_gClipping = models
 
@@ -97,7 +97,7 @@ class UnrollerGan:
         # if self.is_ER:
         #    self.er_parameters(0.1, 4, 200, 5000)
 
-        self.FM = fm
+        self.previous_test = None
 
         # Model params (most of hyper-params follow the original paper: https://arxiv.org/abs/1611.02163)
         self.z_dim = 256
@@ -163,6 +163,9 @@ class UnrollerGan:
               str(self.mem_batch_size) + "; Memory_size: " + str(self.msize) + "; Age_start: " + str(self.astart) +
               "; Clip_value: " + str(self.clip_value))
 
+    def set_previous_test(self, test):
+        self.previous_test = test
+
     def l2_loss(self, d_loss):  # L2 https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
         l2_lambda = 0.01
         l2_reg = torch.tensor(0.).cuda()
@@ -204,8 +207,6 @@ class UnrollerGan:
         if self.is_ER:
             mem = self.er.draw_batch_fake(d_fake_data)  # d_fake_data[0] just one element, 0 since it is fake
             new = d_fake_data
-            new = d_fake_data[len(mem):self.minibatch_size + 1]  # batch_new becomes the total batch size,
-            # so the actual new batch is resized
             d_fake_data = torch.cat((new, mem))
 
         d_fake_decision = self.D(d_fake_data)
@@ -240,8 +241,8 @@ class UnrollerGan:
 
         self.d_optimizer.step()  # Only optimizes D's parameters; changes based on stored gradients from backward()
 
-        if self.is_ER:
-            self.er.update_batch()
+        #if self.is_ER:
+        #    self.er.update_batch()
 
         return d_real_error.cpu().item(), d_fake_error.cpu().item()
 
@@ -332,7 +333,8 @@ class UnrollerGan:
 
     def train(self, num_iterations=25000, log_interval=1000):
         # n_tasks = num_iterations / self.ewc_alpha
-
+        if verbose_plot is True:
+            log_interval = 5
         steps = []
         for it in range(1, num_iterations + 1):
             d_infos = []
@@ -362,12 +364,21 @@ class UnrollerGan:
                     self.D.estimate_fisher(data_distribution, g_fake_data)
 
             if it % log_interval == 0 or it == 1:
-                g_fake_data = self.g_sample()
-                steps.append((it, g_fake_data))
+                g_fake_data = self.g_sample(512)
                 if verbose_plot:
-                    plot_advancement(g_fake_data, "", it, self.dset)
+                    if self.er is not None:
+                        plot_advancement(g_fake_data, self.er.examples.cpu(), "", it, self.dset, self.FM)
+                    else:
+                        plot_advancement(g_fake_data, None, "", it, self.dset, self.FM)
                 print("D_real_loss: " + str(d_real_loss) + "; D_fake_loss: " + str(d_fake_loss) + "; G_loss: " + str(
                     g_loss))
 
+            if it % 1000 == 0 or it == 1:
+                g_fake_data = self.g_sample(512)
+                steps.append((it, g_fake_data))
+
         prefix = self.FM.save_gd(self.G, self.D)
-        plot_samples(steps, self.unrolled_steps, prefix, self.dset)
+        plot_samples(steps, self.previous_test, prefix, self.dset)
+        if self.is_ER:
+            self.FM.save_er_mem(self.er.examples.cpu())
+            #plot_ermem(self.er.examples, self.dset, self.FM)

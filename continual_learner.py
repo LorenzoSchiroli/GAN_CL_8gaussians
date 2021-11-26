@@ -102,7 +102,7 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
             # -use provided label to calculate loglikelihood --> "empirical Fisher":
             label = y.to(self._device()).unsqueeze(0)
             # calculate negative log-likelihood
-            negloglikelihood = F.binary_cross_entropy(output, label.unsqueeze(0))
+            negloglikelihood = F.binary_cross_entropy_with_logits(output, label.unsqueeze(0))
 
             # Calculate gradient of negative loglikelihood
             self.zero_grad()
